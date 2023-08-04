@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::libbpf_sys;
 use crate::util;
 use crate::Error;
-use crate::Map;
+use crate::MapHandle;
 use crate::MapType;
 use crate::Result;
 
@@ -42,7 +42,7 @@ impl Debug for CbStruct<'_> {
 
 /// Builds [`PerfBuffer`] instances.
 pub struct PerfBufferBuilder<'a, 'b> {
-    map: &'a Map,
+    map_handle: &'a MapHandle,
     pages: usize,
     sample_cb: Option<Box<dyn SampleCb + 'b>>,
     lost_cb: Option<Box<dyn LostCb + 'b>>,
@@ -50,9 +50,9 @@ pub struct PerfBufferBuilder<'a, 'b> {
 
 impl<'a> PerfBufferBuilder<'a, '_> {
     /// Create a new `PerfBufferBuilder` using the provided `Map`.
-    pub fn new(map: &'a Map) -> Self {
+    pub fn new(map_handle: &'a MapHandle) -> Self {
         Self {
-            map,
+            map_handle,
             pages: 64,
             sample_cb: None,
             lost_cb: None,
@@ -69,7 +69,7 @@ impl<'a, 'b> PerfBufferBuilder<'a, 'b> {
     /// Callback arguments are: `(cpu, data)`.
     pub fn sample_cb<NewCb: SampleCb + 'b>(self, cb: NewCb) -> PerfBufferBuilder<'a, 'b> {
         PerfBufferBuilder {
-            map: self.map,
+            map_handle: self.map_handle,
             pages: self.pages,
             sample_cb: Some(Box::new(cb)),
             lost_cb: self.lost_cb,
@@ -81,7 +81,7 @@ impl<'a, 'b> PerfBufferBuilder<'a, 'b> {
     /// Callback arguments are: `(cpu, lost_count)`.
     pub fn lost_cb<NewCb: LostCb + 'b>(self, cb: NewCb) -> PerfBufferBuilder<'a, 'b> {
         PerfBufferBuilder {
-            map: self.map,
+            map_handle: self.map_handle,
             pages: self.pages,
             sample_cb: self.sample_cb,
             lost_cb: Some(Box::new(cb)),
@@ -91,7 +91,7 @@ impl<'a, 'b> PerfBufferBuilder<'a, 'b> {
     /// The number of pages to size the ring buffer.
     pub fn pages(self, pages: usize) -> PerfBufferBuilder<'a, 'b> {
         PerfBufferBuilder {
-            map: self.map,
+            map_handle: self.map_handle,
             pages,
             sample_cb: self.sample_cb,
             lost_cb: self.lost_cb,
@@ -100,7 +100,7 @@ impl<'a, 'b> PerfBufferBuilder<'a, 'b> {
 
     /// Build the `PerfBuffer` object as configured.
     pub fn build(self) -> Result<PerfBuffer<'b>> {
-        if self.map.map_type() != MapType::PerfEventArray {
+        if self.map_handle.map_type() != MapType::PerfEventArray {
             return Err(Error::InvalidInput(
                 "Must use a PerfEventArray map".to_string(),
             ));
@@ -131,7 +131,7 @@ impl<'a, 'b> PerfBufferBuilder<'a, 'b> {
 
         util::create_bpf_entity_checked(|| unsafe {
             libbpf_sys::perf_buffer__new(
-                self.map.as_fd().as_raw_fd(),
+                self.map_handle.as_fd().as_raw_fd(),
                 self.pages as libbpf_sys::size_t,
                 c_sample_cb,
                 c_lost_cb,
@@ -166,13 +166,13 @@ impl<'a, 'b> PerfBufferBuilder<'a, 'b> {
 impl Debug for PerfBufferBuilder<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let Self {
-            map,
+            map_handle,
             pages,
             sample_cb,
             lost_cb,
         } = self;
         f.debug_struct("PerfBufferBuilder")
-            .field("map", map)
+            .field("map_handle", map_handle)
             .field("pages", pages)
             .field("sample_cb", &sample_cb.as_ref().map(|cb| &cb as *const _))
             .field("lost_cb", &lost_cb.as_ref().map(|cb| &cb as *const _))
